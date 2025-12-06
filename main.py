@@ -557,52 +557,63 @@ def process_timesheet(df):
 # -------------------- API MODELS & ENDPOINTS --------------------
 
 class ProcessRequest(BaseModel):
-    # Match what Blocks sends
-    csvFileUrl: str
+    # EITHER send csvBase64 (preferred) OR csvFileUrl (fallback)
+    csvBase64: str | None = None
+    csvFileUrl: str | None = None
     runName: str | None = None
+
 
 @app.post("/process-payroll")
 async def process_payroll(request: ProcessRequest):
-    csv_url = request.csvFileUrl
     try:
-        # Download CSV
-        resp = requests.get(csv_url, timeout=30)
-        if resp.status_code != 200:
+        # 1) Get CSV bytes
+        if request.csvBase64:
+            # Preferred path: Blocks sends file content as base64
+            csv_bytes = base64.b64decode(request.csvBase64)
+        elif request.csvFileUrl:
+            # Fallback: URL must be publicly reachable
+            resp = requests.get(request.csvFileUrl, timeout=30)
+            if resp.status_code != 200:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to download CSV (status {resp.status_code})"
+                )
+            csv_bytes = resp.content
+        else:
             raise HTTPException(
                 status_code=400,
-                detail=f"Failed to download CSV (status {resp.status_code})"
+                detail="Either csvBase64 or csvFileUrl must be provided"
             )
-        
-        # Save to temp file
-        with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.csv') as tmp:
-            tmp.write(resp.content)
+
+        # 2) Save to temp file
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".csv") as tmp:
+            tmp.write(csv_bytes)
             csv_path = tmp.name
-        
-        # Step 1: Clean bird breaks
+
+        # 3) Clean bird breaks
         raw_df = pd.read_csv(csv_path, header=None)
         cleaned_df = clean_bird_breaks(raw_df)
-        
-        # Step 2: Process timesheet
+
+        # 4) Process timesheet
         result_df = process_timesheet(cleaned_df)
-        
-        # Step 3: Generate Excel output
-        output_path = tempfile.mktemp(suffix='.xlsx')
-        result_df.to_excel(output_path, index=False, sheet_name='Noatum Hours')
-        
-        # Read output file as base64
-        with open(output_path, 'rb') as f:
+
+        # 5) Generate Excel output
+        output_path = tempfile.mktemp(suffix=".xlsx")
+        result_df.to_excel(output_path, index=False, sheet_name="Noatum Hours")
+
+        with open(output_path, "rb") as f:
             file_content = base64.b64encode(f.read()).decode()
-        
-        # Cleanup
+
+        # 6) Cleanup temp files
         os.unlink(csv_path)
         os.unlink(output_path)
-        
-        # Calculate summary
+
+        # 7) Summary
         total_workers = len(result_df)
         total_hours = result_df["TOTAL HOURS"].sum()
         bird_workers = (result_df["BIRD SHIFT"] == "Y").sum()
         exceptions = (result_df["FLAG WITH POTENTIAL ISSUE"] == "Y").sum()
-        
+
         return {
             "success": True,
             "summary": {
@@ -613,25 +624,15 @@ async def process_payroll(request: ProcessRequest):
                 "runName": request.runName,
             },
             "exportFileBase64": file_content,
-            "exportFileName": "Noatum_Timesheet_Output.xlsx"
+            "exportFileName": "Noatum_Timesheet_Output.xlsx",
         }
-        
+
     except HTTPException:
-        # let explicit HTTP errors (like bad CSV) pass through
         raise
     except Exception as e:
-        # log full traceback to Render logs and expose detail for debugging
         traceback.print_exc()
         raise HTTPException(
             status_code=500,
-            detail=f"{str(e)}\n{traceback.format_exc()}"
+            detail=f"{str(e)}\n{traceback.format_exc()}",
         )
-
-@app.get("/health")
-async def health():
-    return {"status": "healthy"}
-
-@app.get("/")
-async def root():
-    return {"message": "Noatum Payroll API", "status": "running"}
 
