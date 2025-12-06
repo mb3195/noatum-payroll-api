@@ -1,4 +1,18 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware  # ADD THIS
+
+app = FastAPI()
+
+# ADD THIS CORS MIDDLEWARE
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins (or specify blocks.diy domain)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ... rest of your codefrom fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import pandas as pd
 import openpyxl
@@ -599,4 +613,5 @@ async def health():
 
 @app.get("/")
 async def root():
+
     return {"message": "Noatum Payroll API", "status": "running"}
