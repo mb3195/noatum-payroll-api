@@ -23,7 +23,7 @@ import requests
 from datetime import datetime
 import re
 
-app = FastAPI()
+
 
 # -------------------- HELPERS --------------------
 TIME_FORMATS = ["%I:%M %p", "%H:%M", "%I:%M%p", "%H:%M:%S"]
@@ -615,3 +615,4 @@ async def health():
 async def root():
 
     return {"message": "Noatum Payroll API", "status": "running"}
+
